@@ -1,5 +1,5 @@
-# Use Python slim image
-FROM python:3.11-slim
+# Use PyTorch base image to avoid rebuilding ML dependencies
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
 
 # Set working directory
 WORKDIR /app
