@@ -3,9 +3,6 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-.docker
-textbook-uploads
-
 # C extensions
 *.so
 
