@@ -51,6 +51,7 @@ try:
     summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
     nltk.download('punkt', quiet=True)
     nltk.download('stopwords', quiet=True)
+    logger.info("AI models loaded successfully")
 except Exception as e:
     logger.warning(f"NLP initialization warning: {e}")
     summarizer = None
@@ -175,7 +176,7 @@ def detect_toc_patterns(text_content):
 
 def generate_summary(text, max_length=150):
     """Generate summary using transformer model."""
-    if not text.strip() or not summarizer:
+    if not text.strip():
         return "Summary not available"
     
     try:
@@ -185,8 +186,28 @@ def generate_summary(text, max_length=150):
         if len(text) < 50:
             return text[:max_length] + "..." if len(text) > max_length else text
         
-        summary = summarizer(text, max_length=max_length, min_length=30, do_sample=False)
-        return summary[0]['summary_text']
+        # Use AI summarization if available, fallback to extractive
+        if summarizer:
+            summary = summarizer(text, max_length=max_length, min_length=30, do_sample=False)
+            return summary[0]['summary_text']
+        else:
+            # Simple extractive fallback
+            sentences = text.split('. ')
+            summary_sentences = []
+            current_length = 0
+            
+            for sentence in sentences:
+                if current_length + len(sentence) > max_length:
+                    break
+                summary_sentences.append(sentence.strip())
+                current_length += len(sentence)
+            
+            summary = '. '.join(summary_sentences)
+            if summary and not summary.endswith('.'):
+                summary += '.'
+                
+            return summary if summary else text[:max_length] + "..."
+            
     except Exception as e:
         logger.warning(f"Summarization failed: {e}")
         return text[:max_length] + "..." if len(text) > max_length else text
