@@ -1,5 +1,5 @@
 # Use PyTorch base image to avoid rebuilding ML dependencies
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+FROM pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime
 
 # Set working directory
 WORKDIR /app
