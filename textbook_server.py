@@ -585,6 +585,137 @@ async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_o
         logger.error(f"Quiz generation error: {e}")
         return f"❌ Error generating quiz: {str(e)}"
 
+@mcp.tool()
+async def extract_text_from_pdf(
+    file_path: str = "",
+    focus_pages: str = "",
+    supporting_files: str = "",
+    use_ocr: str = "false"
+) -> str:
+    """
+    Read entire PDF (or specified pages)
+    
+    Args:
+        file_path: Path to the PDF file
+        focus_pages: Optional page range to focus on (e.g., "1-10" or "5,10,15-20"). If empty, reads entire document
+        supporting_files: Comma-separated list of supporting file paths
+        use_ocr: Whether to use OCR for scanned PDFs
+    
+    Returns:
+        Combined text content from main and supporting files
+    """
+    if not check_rate_limit("extract_text_from_pdf"):
+        return "⏱️ Rate limit exceeded. Please try again later."
+
+    logger.info(f"Extracting text from PDF: {file_path}")
+
+    if not file_path.strip():
+        return "❌ Error: file_path is required"
+
+    if not supporting_files.strip():
+        return "❌ Error: supporting_files is required"
+    
+    safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
+    
+    if not os.path.exists(safe_path):
+        return f"❌ Error: File not found: {file_path}"
+    
+    if not validate_file_type(safe_path):
+        return "❌ Error: File must be a PDF"
+    
+    try:
+        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        
+        # Get total pages
+        with open(safe_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            total_pages = len(pdf_reader.pages)
+        
+        logger.info(f"PDF has {total_pages} pages")
+        
+        # Determine which pages to read
+        if focus_pages.strip():
+            page_list = validate_page_range(focus_pages, total_pages)
+            logger.info(f"Reading specified pages: {len(page_list)} pages")
+        else:
+            # Read entire document (up to MAX_PAGES limit)
+            page_list = list(range(1, min(total_pages + 1, MAX_PAGES + 1)))
+            logger.info(f"Reading entire document: {len(page_list)} pages")
+        
+        if not page_list:
+            return "❌ Error: Invalid page range"
+        
+        # Extract text from main PDF
+        logger.info("Extracting text from main PDF...")
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, page_list)
+        
+        # Combine all text from main file
+        combined_text = '\n\n'.join([f"=== PAGE {page_num} ===\n{text}" 
+                                     for page_num, text in text_content.items() if text.strip()])
+        
+        if not combined_text.strip():
+            return "❌ Error: No text found in main document"
+        
+        logger.info(f"Extracted {len(combined_text)} characters from {len(page_list)} pages")
+        
+        # Process supporting files
+        supporting_text = ""
+        supporting_file_list = [f.strip() for f in supporting_files.split(',') if f.strip()]
+        
+        if supporting_file_list:
+            logger.info(f"Processing {len(supporting_file_list)} supporting files")
+            
+            for idx, support_file in enumerate(supporting_file_list, 1):
+                safe_support_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(support_file))
+                
+                if not os.path.exists(safe_support_path):
+                    logger.warning(f"Supporting file not found: {support_file}")
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ File not found\n"
+                    continue
+                
+                if not validate_file_type(safe_support_path):
+                    logger.warning(f"Supporting file is not a PDF: {support_file}")
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ File must be a PDF\n"
+                    continue
+                
+                try:
+                    # Get total pages of supporting file
+                    with open(safe_support_path, 'rb') as file:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        support_total_pages = len(pdf_reader.pages)
+                    
+                    # Read all pages (up to MAX_PAGES limit)
+                    support_page_list = list(range(1, min(support_total_pages + 1, MAX_PAGES + 1)))
+                    
+                    logger.info(f"Extracting text from supporting file: {support_file} ({len(support_page_list)} pages)")
+                    support_content = await extract_text_from_pdf(safe_support_path, use_ocr_bool, support_page_list)
+                    
+                    # Combine text from supporting file
+                    support_combined = '\n\n'.join([f"=== PAGE {page_num} ===\n{text}" 
+                                                   for page_num, text in support_content.items() if text.strip()])
+                    
+                    if support_combined.strip():
+                        supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n{support_combined}"
+                        logger.info(f"Extracted {len(support_combined)} characters from {support_file}")
+                    else:
+                        supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ No text found in document\n"
+                        logger.warning(f"No text found in supporting file: {support_file}")
+                
+                except Exception as e:
+                    logger.error(f"Error processing supporting file {support_file}: {e}")
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ Error: {str(e)}\n"
+        
+        # Combine main text and supporting text
+        final_output = f"=== MAIN FILE: {file_path} ===\n{combined_text}"
+        if supporting_text:
+            final_output += f"\n\n{supporting_text}"
+        
+        return final_output
+        
+    except Exception as e:
+        logger.error(f"PDF text extraction error: {e}", exc_info=True)
+        return f"❌ Error extracting text from PDF: {str(e)}"
+
 # === SERVER STARTUP ===
 
 if __name__ == "__main__":
