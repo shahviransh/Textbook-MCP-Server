@@ -48,7 +48,7 @@ See the step-by-step instructions provided with the files.
 
 ## Usage Examples
 
-In Claude Desktop, you can ask:
+In LLM Desktop, you can ask:
 
 - "Extract the table of contents from textbook.pdf"
 - "Summarize chapter 3 which spans pages 45-67"
@@ -76,7 +76,7 @@ In Claude Desktop, you can ask:
 ## Architecture
 
 ```
-Claude Desktop → MCP Gateway → Textbook MCP Server → PDF Processing
+LLM Desktop → MCP Gateway → Textbook MCP Server → PDF Processing
                                       ↓
                               OCR (Tesseract) + NLP Models
                               (Text extraction, summarization, Q&A generation)
@@ -122,8 +122,8 @@ OCR supports multiple languages via Tesseract:
 
 - Verify Docker image built successfully
 - Check catalog and registry files
-- Ensure Claude Desktop config includes custom catalog
-- Restart Claude Desktop
+- Ensure LLM Desktop config includes custom catalog
+- Restart LLM Desktop
 
 ### PDF Processing Errors
 

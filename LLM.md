@@ -1,8 +1,8 @@
-# Textbook PDF Analysis MCP Server - Claude Implementation Guide
+# Textbook PDF Analysis MCP Server - LLM Implementation Guide
 
 ## Overview
 
-This MCP server enables Claude Desktop to analyze PDF textbooks with advanced capabilities including OCR, table of contents extraction, content summarization, flashcard generation, and quiz creation.
+This MCP server enables LLM Desktop to analyze PDF textbooks with advanced capabilities including OCR, table of contents extraction, content summarization, flashcard generation, and quiz creation.
 
 ## Implementation Details
 
@@ -96,7 +96,7 @@ MAX_FILE_SIZE_MB=100                   # File size limit
 
 ## Integration Guidelines
 
-### Claude Desktop Usage
+### LLM Desktop Usage
 
 1. **File Management**: Users should place PDFs in the designated upload directory
 2. **Parameter Format**: Page ranges support multiple formats (1-10, 1,5,10-15)
@@ -192,4 +192,4 @@ docker exec [container_name] ls -la /app/uploads
 docker exec -it [container_name] python -c "import pytesseract; print('OCR OK')"
 ```
 
-This implementation provides a robust, secure, and scalable solution for PDF analysis within the Claude Desktop environment.
+This implementation provides a robust, secure, and scalable solution for PDF analysis within the LLM Desktop environment.
