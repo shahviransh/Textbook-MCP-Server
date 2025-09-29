@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
+# Copy any pre-existing uploads (if any)
+COPY textbook-uploads /app/uploads
+
 # Install dependencies using conda/pip
 RUN pip install --no-cache-dir -r requirements.txt
 
