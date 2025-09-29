@@ -47,14 +47,24 @@ RATE_LIMIT_REQUESTS = 50
 RATE_LIMIT_WINDOW = 3600  # 1 hour
 
 # Initialize NLP components
-try:
-    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-    nltk.download('punkt', quiet=True)
-    nltk.download('stopwords', quiet=True)
-    logger.info("AI models loaded successfully")
-except Exception as e:
-    logger.warning(f"NLP initialization warning: {e}")
-    summarizer = None
+summarizer = None
+nltk_downloaded = False
+
+def get_summarizer():
+    global summarizer
+    if summarizer is None:
+        from transformers import pipeline
+        logger.info("Loading summarization model on first request...")
+        summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    return summarizer
+
+def lazy_nltk_download():
+    global nltk_downloaded
+    if not nltk_downloaded:
+        import nltk
+        nltk.download('punkt', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        nltk_downloaded = True
 
 # === UTILITY FUNCTIONS ===
 
@@ -178,20 +188,20 @@ def generate_summary(text, max_length=150):
     """Generate summary using transformer model."""
     if not text.strip():
         return "Summary not available"
-    
+
+    lazy_nltk_download()  # ensure NLTK is ready
+
     try:
-        # Clean and limit text
-        text = text.strip()[:1024]  # Limit input length
-        
+        text = text.strip()[:1024]
         if len(text) < 50:
             return text[:max_length] + "..." if len(text) > max_length else text
-        
-        # Use AI summarization if available, fallback to extractive
-        if summarizer:
-            summary = summarizer(text, max_length=max_length, min_length=30, do_sample=False)
+
+        summ = get_summarizer()  # lazy load model here
+        if summ:
+            summary = summ(text, max_length=max_length, min_length=30, do_sample=False)
             return summary[0]['summary_text']
         else:
-            # Simple extractive fallback
+            # Fallback extractive summarization
             sentences = text.split('. ')
             summary_sentences = []
             current_length = 0
