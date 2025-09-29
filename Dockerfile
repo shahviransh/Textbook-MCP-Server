@@ -25,6 +25,12 @@ COPY requirements.txt .
 # Install dependencies using conda/pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download HuggingFace model
+RUN python -c "from transformers import pipeline; pipeline('summarization', model='facebook/bart-large-cnn')"
+
+# Pre-download NLTK data
+RUN python -m nltk.downloader punkt stopwords
+
 # Copy the server code
 COPY textbook_server.py .
 
