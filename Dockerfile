@@ -22,9 +22,6 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Copy any pre-existing uploads (if any)
-COPY textbook-uploads /app/uploads
-
 # Install dependencies using conda/pip
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -40,6 +37,9 @@ COPY textbook_server.py .
 # Create directories for uploads and processing
 RUN mkdir -p /app/uploads /app/temp && \
     chmod 755 /app/uploads /app/temp
+
+# Copy any pre-existing uploads (if any)
+COPY textbook-uploads /app/uploads
 
 # Create non-root user
 RUN useradd -m -u 1000 mcpuser && \
