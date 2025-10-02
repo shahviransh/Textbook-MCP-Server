@@ -611,9 +611,6 @@ async def extract_text_from_pdf(
 
     if not file_path.strip():
         return "❌ Error: file_path is required"
-
-    if not supporting_files.strip():
-        return "❌ Error: supporting_files is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
