@@ -586,7 +586,7 @@ async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_o
         return f"❌ Error generating quiz: {str(e)}"
 
 @mcp.tool()
-async def extract_text_from_pdf(
+async def extract_from_pdf(
     file_path: str = "",
     focus_pages: str = "",
     supporting_files: str = "",
