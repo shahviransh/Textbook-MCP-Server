@@ -22,6 +22,8 @@ from PIL import Image
 from transformers import pipeline
 import nltk
 from mcp.server.fastmcp import FastMCP
+import textwrap
+from typing import List, Dict
 
 # Configure logging to stderr
 logging.basicConfig(
@@ -712,6 +714,520 @@ async def extract_from_pdf(
     except Exception as e:
         logger.error(f"PDF text extraction error: {e}", exc_info=True)
         return f"❌ Error extracting text from PDF: {str(e)}"
+
+# Add this utility function with the other utility functions
+def extract_key_points(text: str, max_points: int = 15) -> List[str]:
+    """Extract key points from text for cheatsheet."""
+    if not text.strip():
+        return []
+    
+    # Split into sentences
+    sentences = [s.strip() for s in text.replace('\n', ' ').split('.') if s.strip()]
+    
+    key_points = []
+    for sentence in sentences[:max_points]:
+        # Filter for meaningful sentences (avoid headers, page numbers, etc.)
+        if len(sentence) > 20 and len(sentence.split()) > 3:
+            # Truncate long sentences
+            if len(sentence) > 100:
+                sentence = sentence[:97] + "..."
+            key_points.append(sentence)
+    
+    return key_points
+
+def create_cheatsheet_html(title: str, sections: List[Dict[str, any]]) -> str:
+    """Generate handwritten-looking cheatsheet HTML."""
+    
+    html = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Indie+Flower&family=Permanent+Marker&display=swap" rel="stylesheet">
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            font-family: 'Caveat', cursive;
+            padding: 20px;
+            min-height: 100vh;
+        }}
+        
+        .notebook {{
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            position: relative;
+        }}
+        
+        /* Notebook binding holes */
+        .notebook::before {{
+            content: '';
+            position: absolute;
+            left: 40px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: repeating-linear-gradient(
+                to bottom,
+                transparent,
+                transparent 40px,
+                #e74c3c 40px,
+                #e74c3c 42px
+            );
+        }}
+        
+        /* Top binding */
+        .binding {{
+            height: 30px;
+            background: linear-gradient(to bottom, #2c3e50 0%, #34495e 50%, #2c3e50 100%);
+            border-bottom: 3px solid #1a252f;
+            position: relative;
+        }}
+        
+        .binding::after {{
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                to right,
+                transparent,
+                transparent 45px,
+                rgba(255,255,255,0.1) 45px,
+                rgba(255,255,255,0.1) 50px
+            );
+        }}
+        
+        .page {{
+            padding: 60px 80px 60px 80px;
+            background: 
+                linear-gradient(90deg, transparent 79px, #abced4 79px, #abced4 81px, transparent 81px),
+                linear-gradient(#fff 0%, #fafafa 100%);
+            background-size: 100% 100%;
+            line-height: 35px;
+            position: relative;
+        }}
+        
+        /* Lined paper effect */
+        .page::after {{
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 60px;
+            bottom: 60px;
+            background: repeating-linear-gradient(
+                transparent,
+                transparent 34px,
+                #e8e8e8 34px,
+                #e8e8e8 35px
+            );
+            pointer-events: none;
+            z-index: 1;
+        }}
+        
+        .content {{
+            position: relative;
+            z-index: 2;
+        }}
+        
+        h1 {{
+            font-family: 'Permanent Marker', cursive;
+            font-size: 42px;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-align: center;
+            transform: rotate(-1deg);
+            text-shadow: 2px 2px 0px rgba(255,255,255,0.8);
+        }}
+        
+        h2 {{
+            font-family: 'Indie Flower', cursive;
+            font-size: 32px;
+            color: #e74c3c;
+            margin-top: 35px;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #e74c3c;
+            padding-bottom: 5px;
+            transform: rotate(-0.5deg);
+            text-decoration: underline wavy #f39c12;
+        }}
+        
+        h3 {{
+            font-family: 'Caveat', cursive;
+            font-size: 28px;
+            color: #3498db;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }}
+        
+        ul {{
+            list-style: none;
+            padding-left: 30px;
+        }}
+        
+        li {{
+            font-size: 24px;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            position: relative;
+            line-height: 32px;
+        }}
+        
+        li::before {{
+            content: '✓';
+            position: absolute;
+            left: -25px;
+            color: #27ae60;
+            font-weight: bold;
+            font-size: 28px;
+        }}
+        
+        .highlight {{
+            background: linear-gradient(180deg, transparent 50%, #fff59d 50%);
+            padding: 2px 4px;
+            display: inline;
+        }}
+        
+        .important {{
+            background: linear-gradient(180deg, transparent 50%, #ffccbc 50%);
+            padding: 2px 4px;
+            display: inline;
+            font-weight: 600;
+        }}
+        
+        .formula {{
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            border-radius: 5px;
+            transform: rotate(-0.5deg);
+        }}
+        
+        .note {{
+            background: #fffde7;
+            border: 2px dashed #fbc02d;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 22px;
+            transform: rotate(0.5deg);
+            box-shadow: 3px 3px 10px rgba(0,0,0,0.1);
+        }}
+        
+        .note::before {{
+            content: '📌 Note: ';
+            font-weight: bold;
+            color: #f57c00;
+        }}
+        
+        .doodle {{
+            position: absolute;
+            opacity: 0.3;
+            z-index: 0;
+        }}
+        
+        .star {{
+            position: absolute;
+            font-size: 30px;
+            opacity: 0.4;
+            z-index: 0;
+        }}
+        
+        /* Handwritten emphasis */
+        .underline {{
+            text-decoration: underline wavy #e74c3c;
+        }}
+        
+        .circle {{
+            border: 2px solid #9c27b0;
+            border-radius: 50%;
+            padding: 5px 15px;
+            display: inline-block;
+            transform: rotate(-5deg);
+        }}
+        
+        /* Footer */
+        .footer {{
+            padding: 20px 80px;
+            text-align: center;
+            font-size: 20px;
+            color: #7f8c8d;
+            border-top: 2px dashed #bdc3c7;
+        }}
+        
+        /* Print styles */
+        @media print {{
+            body {{
+                background: white;
+            }}
+            .notebook {{
+                box-shadow: none;
+            }}
+        }}
+        
+        /* Responsive */
+        @media (max-width: 768px) {{
+            .page {{
+                padding: 40px 40px 40px 60px;
+            }}
+            h1 {{
+                font-size: 32px;
+            }}
+            h2 {{
+                font-size: 26px;
+            }}
+            h3 {{
+                font-size: 22px;
+            }}
+            li {{
+                font-size: 20px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="notebook">
+        <div class="binding"></div>
+        <div class="page">
+            <div class="content">
+                <h1>{title}</h1>
+                {content}
+            </div>
+        </div>
+        <div class="footer">
+            📚 Created: {date} | Happy Studying! ✨
+        </div>
+    </div>
+    
+    <script>
+        // Add random doodles
+        function addDoodles() {{
+            const page = document.querySelector('.page');
+            const doodles = ['⭐', '🌟', '💡', '📝', '✨', '🎯'];
+            
+            for (let i = 0; i < 5; i++) {{
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.textContent = doodles[Math.floor(Math.random() * doodles.length)];
+                star.style.left = Math.random() * 80 + 10 + '%';
+                star.style.top = Math.random() * 80 + 10 + '%';
+                page.appendChild(star);
+            }}
+        }}
+        
+        // Add slight rotation to list items for handwritten feel
+        document.querySelectorAll('li').forEach((li, index) => {{
+            const rotation = (Math.random() - 0.5) * 1.5;
+            li.style.transform = `rotate(${{rotation}}deg)`;
+        }});
+        
+        addDoodles();
+    </script>
+</body>
+</html>'''
+    
+    return html
+
+# Add this new MCP tool
+@mcp.tool()
+async def create_cheatsheet(
+    file_path: str = "",
+    pages: str = "",
+    title: str = "",
+    use_ocr: str = "false",
+    style: str = "handwritten"
+) -> str:
+    """
+    Create a handwritten-looking cheatsheet from PDF content.
+    
+    Args:
+        file_path: Path to the PDF file
+        pages: Page range to extract from (e.g., "1-10" or "5,10,15-20")
+        title: Title for the cheatsheet (auto-generated if empty)
+        use_ocr: Whether to use OCR for scanned PDFs
+        style: Cheatsheet style - "handwritten" (default), "minimal", or "colorful"
+    
+    Returns:
+        HTML content for handwritten cheatsheet
+    """
+    if not check_rate_limit("create_cheatsheet"):
+        return "⏱️ Rate limit exceeded. Please try again later."
+    
+    logger.info(f"Creating cheatsheet from {file_path}, pages: {pages}")
+    
+    if not file_path.strip():
+        return "❌ Error: file_path is required"
+    
+    safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
+    
+    if not os.path.exists(safe_path):
+        return f"❌ Error: File not found: {file_path}"
+    
+    if not validate_file_type(safe_path):
+        return "❌ Error: File must be a PDF"
+    
+    try:
+        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        
+        # Get total pages
+        with open(safe_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            total_pages = len(pdf_reader.pages)
+        
+        # Validate page range
+        if pages.strip():
+            page_list = validate_page_range(pages, total_pages)
+        else:
+            page_list = list(range(1, min(21, total_pages + 1)))  # First 20 pages by default
+        
+        if not page_list:
+            return "❌ Error: Invalid page range"
+        
+        logger.info(f"Extracting text from {len(page_list)} pages for cheatsheet")
+        
+        # Extract text from specified pages
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, page_list)
+        
+        # Combine text from all pages
+        combined_text = '\n'.join(text_content.values())
+        
+        if not combined_text.strip():
+            return "❌ Error: No text found in specified pages"
+        
+        # Auto-generate title if not provided
+        if not title.strip():
+            # Try to extract title from first few lines
+            first_lines = combined_text.split('\n')[:5]
+            title = next((line.strip() for line in first_lines if len(line.strip()) > 5), "Study Notes")
+            if len(title) > 50:
+                title = title[:47] + "..."
+        
+        logger.info(f"Generating cheatsheet with title: {title}")
+        
+        # Split content into logical sections
+        sections = []
+        current_section = {"title": "Overview", "points": []}
+        
+        # Simple section detection based on headers (lines with fewer than 60 chars, capitalized)
+        lines = combined_text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detect potential headers
+            if len(line) < 60 and (line.isupper() or line.istitle()) and not line.endswith('.'):
+                # Save current section if it has points
+                if current_section["points"]:
+                    sections.append(current_section)
+                # Start new section
+                current_section = {"title": line, "points": []}
+            else:
+                # Add as point to current section
+                if len(line) > 20 and len(current_section["points"]) < 10:  # Limit points per section
+                    current_section["points"].append(line)
+        
+        # Add last section
+        if current_section["points"]:
+            sections.append(current_section)
+        
+        # If no sections detected, create one big section from key points
+        if not sections:
+            key_points = extract_key_points(combined_text, max_points=20)
+            if key_points:
+                sections = [{"title": "Key Points", "points": key_points}]
+        
+        if not sections:
+            return "❌ Error: Could not extract meaningful content for cheatsheet"
+        
+        logger.info(f"Created {len(sections)} sections for cheatsheet")
+        
+        # Build HTML content
+        content_html = ""
+        for i, section in enumerate(sections[:8]):  # Limit to 8 sections for readability
+            section_title = section["title"]
+            points = section["points"][:8]  # Limit to 8 points per section
+            
+            # Vary the header level
+            if i == 0:
+                content_html += f'<h2>{section_title}</h2>\n'
+            else:
+                content_html += f'<h3>{section_title}</h3>\n'
+            
+            content_html += '<ul>\n'
+            for j, point in enumerate(points):
+                # Add variety with highlighting and emphasis
+                if j % 3 == 0 and len(point) > 40:
+                    # Highlight every 3rd point
+                    content_html += f'<li><span class="highlight">{point}</span></li>\n'
+                elif 'important' in point.lower() or 'key' in point.lower() or 'critical' in point.lower():
+                    content_html += f'<li><span class="important">{point}</span></li>\n'
+                else:
+                    content_html += f'<li>{point}</li>\n'
+            content_html += '</ul>\n'
+            
+            # Add a note box every 3 sections
+            if (i + 1) % 3 == 0 and i < len(sections) - 1:
+                content_html += '<div class="note">Review the above sections before moving forward!</div>\n'
+        
+        # Generate final HTML
+        from datetime import datetime
+        current_date = datetime.now().strftime("%B %d, %Y")
+        
+        final_html = create_cheatsheet_html(
+            title=title,
+            sections=sections
+        ).format(
+            title=title,
+            content=content_html,
+            date=current_date
+        )
+        
+        logger.info("Cheatsheet HTML generated successfully")
+        
+        # Return as formatted response
+        result = f"""📝 **Handwritten Cheatsheet Created!**
+
+**Title:** {title}
+**Pages processed:** {len(page_list)} pages
+**Sections:** {len(sections)}
+**Total points:** {sum(len(s['points']) for s in sections)}
+
+The cheatsheet has been generated in handwritten style with:
+- Notebook-style lined paper background
+- Handwritten fonts (Caveat, Indie Flower, Permanent Marker)
+- Color-coded sections and highlights
+- Important points emphasized
+- Study notes and doodles for visual appeal
+
+**The HTML cheatsheet is ready to view!** It includes:
+✓ Responsive design (mobile-friendly)
+✓ Print-friendly CSS
+✓ Interactive elements
+✓ Handwritten aesthetic
+
+You can save this as an HTML file and open it in any web browser, or print it out for physical study notes!
+
+---
+{final_html}"""
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Cheatsheet creation error: {e}", exc_info=True)
+        return f"❌ Error creating cheatsheet: {str(e)}"
 
 # === SERVER STARTUP ===
 
