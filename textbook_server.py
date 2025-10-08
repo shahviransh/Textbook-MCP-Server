@@ -22,8 +22,6 @@ from PIL import Image
 from transformers import pipeline
 import nltk
 from mcp.server.fastmcp import FastMCP
-import textwrap
-from typing import List, Dict
 
 # Configure logging to stderr
 logging.basicConfig(
