@@ -282,21 +282,21 @@ def generate_quiz(text, count=3):
 async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
     """Extract table of contents from a PDF file."""
     if not check_rate_limit("extract_toc"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Extracting TOC from {file_path}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     # Sanitize file path
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     if not validate_file_type(safe_path):
-        return "❌ Error: File must be a PDF"
+        return "Error: File must be a PDF"
     
     try:
         use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
@@ -308,10 +308,10 @@ async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
         toc_entries = detect_toc_patterns(text_content)
         
         if not toc_entries:
-            return "📋 No clear table of contents pattern detected in the first 20 pages"
+            return "No clear table of contents pattern detected in the first 20 pages"
         
         # Format TOC output
-        result = "📚 **Table of Contents Extracted:**\n\n"
+        result = "**Table of Contents Extracted:**\n\n"
         for entry in toc_entries[:50]:  # Limit output
             result += f"**{entry['section']}** {entry['title']} - Page {entry['page']}\n"
         
@@ -319,23 +319,23 @@ async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
         
     except Exception as e:
         logger.error(f"TOC extraction error: {e}")
-        return f"❌ Error extracting TOC: {str(e)}"
+        return f"Error extracting TOC: {str(e)}"
 
 @mcp.tool()
 async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr: str = "false") -> str:
     """Generate summary for specific chapter pages."""
     if not check_rate_limit("chapter_summary"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Generating chapter summary from {file_path}, pages: {chapter_pages}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     try:
         use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
@@ -348,7 +348,7 @@ async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr:
         # Validate page range
         pages = validate_page_range(chapter_pages, total_pages)
         if not pages:
-            return "❌ Error: Invalid page range"
+            return "Error: Invalid page range"
         
         # Extract text from specified pages
         text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, pages)
@@ -357,35 +357,35 @@ async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr:
         combined_text = '\n'.join(text_content.values())
         
         if not combined_text.strip():
-            return "❌ Error: No text found in specified pages"
+            return "Error: No text found in specified pages"
         
         # Generate summary
         summary = generate_summary(combined_text, max_length=300)
         
-        result = f"📖 **Chapter Summary** (Pages {min(pages)}-{max(pages)}):\n\n{summary}\n\n"
+        result = f"**Chapter Summary** (Pages {min(pages)}-{max(pages)}):\n\n{summary}\n\n"
         result += f"**Pages processed:** {len(pages)}\n**Total characters:** {len(combined_text)}"
         
         return result
         
     except Exception as e:
         logger.error(f"Chapter summary error: {e}")
-        return f"❌ Error generating chapter summary: {str(e)}"
+        return f"Error generating chapter summary: {str(e)}"
 
 @mcp.tool()
 async def section_summary(file_path: str = "", section_pages: str = "", use_ocr: str = "false") -> str:
     """Generate summary for specific section pages."""
     if not check_rate_limit("section_summary"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Generating section summary from {file_path}, pages: {section_pages}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     try:
         use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
@@ -398,7 +398,7 @@ async def section_summary(file_path: str = "", section_pages: str = "", use_ocr:
         # Validate page range
         pages = validate_page_range(section_pages, total_pages)
         if not pages:
-            return "❌ Error: Invalid page range"
+            return "Error: Invalid page range"
         
         # Extract text from specified pages
         text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, pages)
@@ -411,32 +411,32 @@ async def section_summary(file_path: str = "", section_pages: str = "", use_ocr:
                 summaries.append(f"**Page {page_num}:** {page_summary}")
         
         if not summaries:
-            return "❌ Error: No text found in specified pages"
+            return "Error: No text found in specified pages"
         
-        result = f"📄 **Section Summary** (Pages {min(pages)}-{max(pages)}):\n\n"
+        result = f"**Section Summary** (Pages {min(pages)}-{max(pages)}):\n\n"
         result += '\n\n'.join(summaries)
         
         return result
         
     except Exception as e:
         logger.error(f"Section summary error: {e}")
-        return f"❌ Error generating section summary: {str(e)}"
+        return f"Error generating section summary: {str(e)}"
 
 @mcp.tool()
 async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str = "false") -> str:
     """Generate summary for a specific page."""
     if not check_rate_limit("page_summary"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Generating page summary from {file_path}, page: {page_number}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     try:
         page_num = int(page_number) if page_number.strip() else 1
@@ -446,41 +446,41 @@ async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str
         text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, [page_num])
         
         if page_num not in text_content:
-            return f"❌ Error: Page {page_num} not found in document"
+            return f"Error: Page {page_num} not found in document"
         
         page_text = text_content[page_num]
         if not page_text.strip():
-            return f"📄 Page {page_num} contains no extractable text"
+            return f"Page {page_num} contains no extractable text"
         
         # Generate summary
         summary = generate_summary(page_text, max_length=200)
         
-        result = f"📄 **Page {page_num} Summary:**\n\n{summary}\n\n"
+        result = f"**Page {page_num} Summary:**\n\n{summary}\n\n"
         result += f"**Character count:** {len(page_text)}\n**Word count:** {len(page_text.split())}"
         
         return result
         
     except ValueError:
-        return f"❌ Error: Invalid page number: {page_number}"
+        return f"Error: Invalid page number: {page_number}"
     except Exception as e:
         logger.error(f"Page summary error: {e}")
-        return f"❌ Error generating page summary: {str(e)}"
+        return f"Error generating page summary: {str(e)}"
 
 @mcp.tool()
 async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use_ocr: str = "false") -> str:
     """Generate flashcards from PDF content."""
     if not check_rate_limit("flashcards"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Generating flashcards from {file_path}, pages: {pages}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     try:
         card_count = int(count) if count.strip() else 5
@@ -502,44 +502,44 @@ async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use
         combined_text = '\n'.join(text_content.values())
         
         if not combined_text.strip():
-            return "❌ Error: No text found in specified pages"
+            return "Error: No text found in specified pages"
         
         # Generate flashcards
         flashcard_list = generate_flashcards(combined_text, card_count)
         
         if not flashcard_list:
-            return "❌ Error: Could not generate flashcards from the content"
+            return "Error: Could not generate flashcards from the content"
         
         result = f"🎓 **Generated {len(flashcard_list)} Flashcards:**\n\n"
         
         for i, card in enumerate(flashcard_list, 1):
             result += f"**Card {i}:**\n"
-            result += f"❓ **Question:** {card['question']}\n"
-            result += f"✅ **Answer:** {card['answer']}\n\n"
+            result += f"**Question:** {card['question']}\n"
+            result += f"**Answer:** {card['answer']}\n\n"
         
         return result
         
     except ValueError:
-        return f"❌ Error: Invalid count value: {count}"
+        return f"Error: Invalid count value: {count}"
     except Exception as e:
         logger.error(f"Flashcard generation error: {e}")
-        return f"❌ Error generating flashcards: {str(e)}"
+        return f"Error generating flashcards: {str(e)}"
 
 @mcp.tool()
 async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_ocr: str = "false") -> str:
     """Generate quiz questions from PDF content."""
     if not check_rate_limit("quiz_gen"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
     
     logger.info(f"Generating quiz from {file_path}, pages: {pages}")
     
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     try:
         question_count = int(count) if count.strip() else 3
@@ -561,29 +561,29 @@ async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_o
         combined_text = '\n'.join(text_content.values())
         
         if not combined_text.strip():
-            return "❌ Error: No text found in specified pages"
+            return "Error: No text found in specified pages"
         
         # Generate quiz questions
         quiz_questions = generate_quiz(combined_text, question_count)
         
         if not quiz_questions:
-            return "❌ Error: Could not generate quiz questions from the content"
+            return "Error: Could not generate quiz questions from the content"
         
-        result = f"📝 **Generated {len(quiz_questions)} Quiz Questions:**\n\n"
+        result = f"**Generated {len(quiz_questions)} Quiz Questions:**\n\n"
         
         for i, question in enumerate(quiz_questions, 1):
             result += f"**Question {i}:**\n"
-            result += f"❓ {question['question']}\n"
-            result += f"✅ **Answer:** {question['answer']}\n"
-            result += f"📖 **Context:** {question['context'][:100]}...\n\n"
+            result += f"{question['question']}\n"
+            result += f"**Answer:** {question['answer']}\n"
+            result += f"**Context:** {question['context'][:100]}...\n\n"
         
         return result
         
     except ValueError:
-        return f"❌ Error: Invalid count value: {count}"
+        return f"Error: Invalid count value: {count}"
     except Exception as e:
         logger.error(f"Quiz generation error: {e}")
-        return f"❌ Error generating quiz: {str(e)}"
+        return f"Error generating quiz: {str(e)}"
 
 @mcp.tool()
 async def extract_from_pdf(
@@ -605,20 +605,20 @@ async def extract_from_pdf(
         Combined text content from main and supporting files
     """
     if not check_rate_limit("extract_text_from_pdf"):
-        return "⏱️ Rate limit exceeded. Please try again later."
+        return "Rate limit exceeded. Please try again later."
 
     logger.info(f"Extracting text from PDF: {file_path}")
 
     if not file_path.strip():
-        return "❌ Error: file_path is required"
+        return "Error: file_path is required"
     
     safe_path = os.path.join(ALLOWED_UPLOAD_DIR, sanitize_filename(file_path))
     
     if not os.path.exists(safe_path):
-        return f"❌ Error: File not found: {file_path}"
+        return f"Error: File not found: {file_path}"
     
     if not validate_file_type(safe_path):
-        return "❌ Error: File must be a PDF"
+        return "Error: File must be a PDF"
     
     try:
         use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
@@ -640,7 +640,7 @@ async def extract_from_pdf(
             logger.info(f"Reading entire document: {len(page_list)} pages")
         
         if not page_list:
-            return "❌ Error: Invalid page range"
+            return "Error: Invalid page range"
         
         # Extract text from main PDF
         logger.info("Extracting text from main PDF...")
@@ -651,7 +651,7 @@ async def extract_from_pdf(
                                      for page_num, text in text_content.items() if text.strip()])
         
         if not combined_text.strip():
-            return "❌ Error: No text found in main document"
+            return "Error: No text found in main document"
         
         logger.info(f"Extracted {len(combined_text)} characters from {len(page_list)} pages")
         
@@ -667,12 +667,12 @@ async def extract_from_pdf(
                 
                 if not os.path.exists(safe_support_path):
                     logger.warning(f"Supporting file not found: {support_file}")
-                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ File not found\n"
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\nFile not found\n"
                     continue
                 
                 if not validate_file_type(safe_support_path):
                     logger.warning(f"Supporting file is not a PDF: {support_file}")
-                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ File must be a PDF\n"
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\nFile must be a PDF\n"
                     continue
                 
                 try:
@@ -695,12 +695,12 @@ async def extract_from_pdf(
                         supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n{support_combined}"
                         logger.info(f"Extracted {len(support_combined)} characters from {support_file}")
                     else:
-                        supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ No text found in document\n"
+                        supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\nNo text found in document\n"
                         logger.warning(f"No text found in supporting file: {support_file}")
                 
                 except Exception as e:
                     logger.error(f"Error processing supporting file {support_file}: {e}")
-                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\n❌ Error: {str(e)}\n"
+                    supporting_text += f"\n\n=== SUPPORTING FILE {idx}: {support_file} ===\nError: {str(e)}\n"
         
         # Combine main text and supporting text
         final_output = f"=== MAIN FILE: {file_path} ===\n{combined_text}"
@@ -711,7 +711,7 @@ async def extract_from_pdf(
         
     except Exception as e:
         logger.error(f"PDF text extraction error: {e}", exc_info=True)
-        return f"❌ Error extracting text from PDF: {str(e)}"
+        return f"Error extracting text from PDF: {str(e)}"
 
 # === SERVER STARTUP ===
 
