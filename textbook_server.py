@@ -41,6 +41,7 @@ mcp = FastMCP("textbook")
 # Configuration from environment variables
 MODEL_PATH = os.environ.get("MODEL_PATH", "microsoft/DialoGPT-medium")
 MAX_PAGES = int(os.environ.get("MAX_PAGES", "500"))
+MAX_OCR_PAGES = int(os.environ.get("MAX_OCR_PAGES", "20"))  # Strict limit for OCR
 OCR_LANG = os.environ.get("OCR_LANG", "eng")
 ALLOWED_UPLOAD_DIR = os.environ.get("ALLOWED_UPLOAD_DIR", "/app/uploads")
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "100"))
@@ -131,69 +132,79 @@ async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
     
     try:
         if use_ocr:
-            # Convert PDF to images and OCR
-            logger.info(f"Converting PDF to images for OCR processing (DPI={OCR_DPI})")
-            try:
-                # Try with default poppler path first, then system path
-                try:
-                    images = convert_from_path(
-                        file_path, 
-                        first_page=min(pages) if pages else None, 
-                        last_page=max(pages) if pages else None,
-                        dpi=OCR_DPI  # Lower DPI for faster processing
-                    )
-                except Exception as e:
-                    logger.info(f"Trying with system poppler path: {e}")
-                    # In Docker, poppler should be in system path
-                    images = convert_from_path(
-                        file_path, 
-                        first_page=min(pages) if pages else None,
-                        last_page=max(pages) if pages else None,
-                        poppler_path='/usr/bin',
-                        dpi=OCR_DPI
-                    )
-                
-                logger.info(f"Successfully converted {len(images)} pages to images")
-            except Exception as e:
-                logger.error(f"Failed to convert PDF to images: {e}")
-                raise ValueError(f"PDF to image conversion failed: {e}")
+            # Enforce OCR page limit
+            if pages and len(pages) > MAX_OCR_PAGES:
+                logger.warning(f"OCR requested for {len(pages)} pages, limiting to {MAX_OCR_PAGES} pages")
+                pages = pages[:MAX_OCR_PAGES]
             
-            # Process images with OCR
-            for i, image in enumerate(images, 1):
-                # Adjust page number if we're extracting a subset
-                actual_page = (min(pages) + i - 1) if pages else i
-                if pages and actual_page not in pages:
-                    continue
-                
+            logger.info(f"Starting OCR processing for {len(pages) if pages else 'all'} pages (DPI={OCR_DPI}, Max={MAX_OCR_PAGES})")
+            
+            # Convert and process pages ONE AT A TIME to prevent blocking
+            loop = asyncio.get_event_loop()
+            page_list = pages if pages else list(range(1, MAX_OCR_PAGES + 1))
+            
+            for page_num in page_list:
                 try:
-                    logger.info(f"Performing OCR on page {actual_page}/{len(images)}...")
+                    logger.info(f"Converting page {page_num} to image...")
                     
-                    # Run OCR in executor with timeout to prevent blocking
-                    loop = asyncio.get_event_loop()
+                    # Convert single page to image in executor
+                    try:
+                        images = await loop.run_in_executor(
+                            None,
+                            lambda: convert_from_path(
+                                file_path,
+                                first_page=page_num,
+                                last_page=page_num,
+                                dpi=OCR_DPI
+                            )
+                        )
+                    except Exception as e:
+                        logger.info(f"Retrying with system poppler path")
+                        images = await loop.run_in_executor(
+                            None,
+                            lambda: convert_from_path(
+                                file_path,
+                                first_page=page_num,
+                                last_page=page_num,
+                                poppler_path='/usr/bin',
+                                dpi=OCR_DPI
+                            )
+                        )
+                    
+                    if not images:
+                        logger.warning(f"No image generated for page {page_num}")
+                        text_content[page_num] = "[Image conversion failed]"
+                        continue
+                    
+                    # Yield after image conversion
+                    await asyncio.sleep(0.05)
+                    
+                    # Perform OCR on the converted image
+                    logger.info(f"Performing OCR on page {page_num}...")
                     try:
                         page_text = await asyncio.wait_for(
                             loop.run_in_executor(
                                 None,
-                                lambda img=image: pytesseract.image_to_string(
-                                    img, 
-                                    lang=OCR_LANG, 
+                                lambda: pytesseract.image_to_string(
+                                    images[0],
+                                    lang=OCR_LANG,
                                     config='--psm 1 --oem 3'
                                 )
                             ),
                             timeout=OCR_TIMEOUT_PER_PAGE
                         )
-                        text_content[actual_page] = page_text
-                        logger.info(f"OCR completed for page {actual_page}, extracted {len(page_text)} characters")
+                        text_content[page_num] = page_text
+                        logger.info(f"✓ Page {page_num} OCR completed: {len(page_text)} characters")
                     except asyncio.TimeoutError:
-                        logger.warning(f"OCR timeout for page {actual_page} after {OCR_TIMEOUT_PER_PAGE}s")
-                        text_content[actual_page] = "[OCR timeout - page skipped]"
+                        logger.warning(f"OCR timeout for page {page_num} after {OCR_TIMEOUT_PER_PAGE}s")
+                        text_content[page_num] = "[OCR timeout - page skipped]"
                     
-                    # Yield control to prevent blocking MCP connection
+                    # Yield control after each page
                     await asyncio.sleep(0.1)
                     
                 except Exception as e:
-                    logger.warning(f"OCR failed for page {actual_page}: {e}")
-                    text_content[actual_page] = f"[OCR error: {str(e)}]"
+                    logger.warning(f"OCR failed for page {page_num}: {e}")
+                    text_content[page_num] = f"[OCR error: {str(e)}]"
         else:
             # Extract text directly from PDF
             with pdfplumber.open(file_path) as pdf:

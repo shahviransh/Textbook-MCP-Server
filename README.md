@@ -37,7 +37,8 @@ This MCP server provides a secure interface for AI assistants to analyze textboo
 Set these environment variables when running:
 
 - `MODEL_PATH`: AI model path (default: "microsoft/DialoGPT-medium")
-- `MAX_PAGES`: Maximum pages to process (default: 500)
+- `MAX_PAGES`: Maximum pages to process for regular text extraction (default: 500)
+- `MAX_OCR_PAGES`: **Maximum pages for OCR processing** (default: 20, strict limit)
 - `OCR_LANG`: OCR language code (default: "eng")
 - `ALLOWED_UPLOAD_DIR`: Upload directory (default: "/app/uploads")
 - `MAX_FILE_SIZE_MB`: Maximum file size in MB (default: 100)
@@ -139,11 +140,16 @@ OCR supports multiple languages via Tesseract:
 - Check if Tesseract language packs are installed
 - Verify image quality for scanned documents
 - Consider preprocessing images for better OCR results
+- **OCR Page Limits**: OCR is limited to `MAX_OCR_PAGES` (default: 20 pages) to prevent timeouts
+  - For large documents, specify a small page range when using OCR
+  - Example: Request pages "1-10" instead of the entire 741-page document
+  - OCR is resource-intensive and processes pages sequentially
 - **EOF Errors during OCR**: If you encounter EOF or timeout errors:
-  - Reduce the number of pages processed at once
+  - Reduce `MAX_OCR_PAGES` to 10 or fewer for slower systems
   - Increase `OCR_TIMEOUT_PER_PAGE` (default: 30 seconds)
   - Lower `OCR_DPI` for faster processing (default: 200, try 150 or 100)
   - Check system resources (memory/CPU)
+  - Always specify a page range when using OCR on large files
 
 ### Performance Issues
 
