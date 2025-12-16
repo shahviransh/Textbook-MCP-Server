@@ -41,6 +41,8 @@ Set these environment variables when running:
 - `OCR_LANG`: OCR language code (default: "eng")
 - `ALLOWED_UPLOAD_DIR`: Upload directory (default: "/app/uploads")
 - `MAX_FILE_SIZE_MB`: Maximum file size in MB (default: 100)
+- `OCR_TIMEOUT_PER_PAGE`: Timeout in seconds for OCR per page (default: 30)
+- `OCR_DPI`: Image resolution for OCR processing (default: 200, lower = faster)
 
 ## Installation
 
@@ -137,6 +139,11 @@ OCR supports multiple languages via Tesseract:
 - Check if Tesseract language packs are installed
 - Verify image quality for scanned documents
 - Consider preprocessing images for better OCR results
+- **EOF Errors during OCR**: If you encounter EOF or timeout errors:
+  - Reduce the number of pages processed at once
+  - Increase `OCR_TIMEOUT_PER_PAGE` (default: 30 seconds)
+  - Lower `OCR_DPI` for faster processing (default: 200, try 150 or 100)
+  - Check system resources (memory/CPU)
 
 ### Performance Issues
 

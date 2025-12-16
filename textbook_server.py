@@ -23,6 +23,10 @@ from transformers import pipeline
 import nltk
 from mcp.server.fastmcp import FastMCP
 
+# Configure Tesseract path for Docker
+if os.path.exists('/usr/bin/tesseract'):
+    pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 # Configure logging to stderr
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +44,8 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", "500"))
 OCR_LANG = os.environ.get("OCR_LANG", "eng")
 ALLOWED_UPLOAD_DIR = os.environ.get("ALLOWED_UPLOAD_DIR", "/app/uploads")
 MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "100"))
+OCR_TIMEOUT_PER_PAGE = int(os.environ.get("OCR_TIMEOUT_PER_PAGE", "30"))  # seconds
+OCR_DPI = int(os.environ.get("OCR_DPI", "200"))  # Lower DPI for faster processing
 
 # Rate limiting
 REQUEST_COUNT = {}
@@ -126,16 +132,68 @@ async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
     try:
         if use_ocr:
             # Convert PDF to images and OCR
-            images = convert_from_path(file_path)
-            for i, image in enumerate(images, 1):
-                if pages and i not in pages:
-                    continue
+            logger.info(f"Converting PDF to images for OCR processing (DPI={OCR_DPI})")
+            try:
+                # Try with default poppler path first, then system path
                 try:
-                    page_text = pytesseract.image_to_string(image, lang=OCR_LANG)
-                    text_content[i] = page_text
+                    images = convert_from_path(
+                        file_path, 
+                        first_page=min(pages) if pages else None, 
+                        last_page=max(pages) if pages else None,
+                        dpi=OCR_DPI  # Lower DPI for faster processing
+                    )
                 except Exception as e:
-                    logger.warning(f"OCR failed for page {i}: {e}")
-                    text_content[i] = ""
+                    logger.info(f"Trying with system poppler path: {e}")
+                    # In Docker, poppler should be in system path
+                    images = convert_from_path(
+                        file_path, 
+                        first_page=min(pages) if pages else None,
+                        last_page=max(pages) if pages else None,
+                        poppler_path='/usr/bin',
+                        dpi=OCR_DPI
+                    )
+                
+                logger.info(f"Successfully converted {len(images)} pages to images")
+            except Exception as e:
+                logger.error(f"Failed to convert PDF to images: {e}")
+                raise ValueError(f"PDF to image conversion failed: {e}")
+            
+            # Process images with OCR
+            for i, image in enumerate(images, 1):
+                # Adjust page number if we're extracting a subset
+                actual_page = (min(pages) + i - 1) if pages else i
+                if pages and actual_page not in pages:
+                    continue
+                
+                try:
+                    logger.info(f"Performing OCR on page {actual_page}/{len(images)}...")
+                    
+                    # Run OCR in executor with timeout to prevent blocking
+                    loop = asyncio.get_event_loop()
+                    try:
+                        page_text = await asyncio.wait_for(
+                            loop.run_in_executor(
+                                None,
+                                lambda img=image: pytesseract.image_to_string(
+                                    img, 
+                                    lang=OCR_LANG, 
+                                    config='--psm 1 --oem 3'
+                                )
+                            ),
+                            timeout=OCR_TIMEOUT_PER_PAGE
+                        )
+                        text_content[actual_page] = page_text
+                        logger.info(f"OCR completed for page {actual_page}, extracted {len(page_text)} characters")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"OCR timeout for page {actual_page} after {OCR_TIMEOUT_PER_PAGE}s")
+                        text_content[actual_page] = "[OCR timeout - page skipped]"
+                    
+                    # Yield control to prevent blocking MCP connection
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logger.warning(f"OCR failed for page {actual_page}: {e}")
+                    text_content[actual_page] = f"[OCR error: {str(e)}]"
         else:
             # Extract text directly from PDF
             with pdfplumber.open(file_path) as pdf:
@@ -724,6 +782,25 @@ if __name__ == "__main__":
     # Startup checks
     logger.info(f"Configuration: MAX_PAGES={MAX_PAGES}, OCR_LANG={OCR_LANG}")
     logger.info(f"Upload directory: {ALLOWED_UPLOAD_DIR}")
+    
+    # Verify OCR dependencies
+    try:
+        tesseract_version = pytesseract.get_tesseract_version()
+        logger.info(f"✓ Tesseract OCR detected: version {tesseract_version}")
+    except Exception as e:
+        logger.warning(f"⚠ Tesseract OCR not available: {e}")
+        logger.warning("OCR features will not work properly")
+    
+    # Verify poppler
+    try:
+        import subprocess
+        result = subprocess.run(['pdfinfo', '-v'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            logger.info("✓ Poppler utilities detected (required for pdf2image)")
+        else:
+            logger.warning("⚠ Poppler utilities may not be properly configured")
+    except Exception as e:
+        logger.warning(f"⚠ Could not verify poppler installation: {e}")
     
     try:
         mcp.run(transport='stdio')
