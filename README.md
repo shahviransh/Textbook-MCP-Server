@@ -53,28 +53,37 @@ See the step-by-step instructions provided with the files.
 
 In LLM Desktop, you can ask:
 
-- "Extract the table of contents from textbook.pdf"
-- "Summarize chapter 3 which spans pages 45-67"
+- "Extract the table of contents from textbook.pdf" (auto-detects if OCR is needed)
+- "Summarize chapter 3 which spans pages 45-67" (automatically OCRs pages with images)
 - "Create flashcards from pages 10-20 of the biology textbook"
 - "Generate quiz questions from the first 5 pages"
-- "Summarize page 123 using OCR since it's a scanned document"
+- "Read combined_lectures.pdf" (intelligently OCRs only image pages, fast text extraction for text pages)
+
+**NEW: Intelligent OCR** - The server automatically detects which pages contain images and applies OCR only to those pages, making it fast for text pages and accurate for scanned/image pages!
 
 ### Tool Parameters
 
+**All tools now support intelligent OCR by default!**
+
+**OCR Modes** (applies to all tools):
+- `"auto"` (default): Automatically detects pages with images and applies OCR only to those pages
+- `"true"`: Force OCR on all specified pages (limited to MAX_OCR_PAGES)
+- `"false"`: Disable OCR, use fast text extraction only
+
 **extract_toc**:
 - `file_path`: Name of PDF file in upload directory
-- `use_ocr`: "true" or "false" for OCR processing
+- `use_ocr`: OCR mode (default: "auto")
 
 **chapter_summary**:
 - `file_path`: Name of PDF file
 - `chapter_pages`: Page range (e.g., "10-25" or "10,15,20-25")
-- `use_ocr`: Enable OCR if needed
+- `use_ocr`: OCR mode (default: "auto")
 
 **flashcards**:
 - `file_path`: Name of PDF file
 - `pages`: Page range to process
 - `count`: Number of flashcards to generate (max 20)
-- `use_ocr`: Enable OCR if needed
+- `use_ocr`: OCR mode (default: "auto")
 
 ## Architecture
 
@@ -140,10 +149,15 @@ OCR supports multiple languages via Tesseract:
 - Check if Tesseract language packs are installed
 - Verify image quality for scanned documents
 - Consider preprocessing images for better OCR results
-- **OCR Page Limits**: OCR is limited to `MAX_OCR_PAGES` (default: 20 pages) to prevent timeouts
-  - For large documents, specify a small page range when using OCR
-  - Example: Request pages "1-10" instead of the entire 741-page document
-  - OCR is resource-intensive and processes pages sequentially
+- **Intelligent OCR (NEW)**: By default, the server uses `"auto"` mode which:
+  - Analyzes each page to detect if it contains images or is scanned
+  - Only applies OCR to pages that need it (images/scanned pages)
+  - Uses fast text extraction for regular text pages
+  - No need to manually specify OCR - it's automatic!
+  - Can process large documents efficiently (text pages are fast, only image pages use OCR)
+- **OCR Page Limits**: When OCR is needed, it's limited to `MAX_OCR_PAGES` (default: 20 pages) to prevent timeouts
+  - The auto mode will OCR up to 20 pages that contain images
+  - Remaining text-only pages are processed with fast text extraction
 - **EOF Errors during OCR**: If you encounter EOF or timeout errors:
   - Reduce `MAX_OCR_PAGES` to 10 or fewer for slower systems
   - Increase `OCR_TIMEOUT_PER_PAGE` (default: 30 seconds)

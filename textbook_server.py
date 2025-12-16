@@ -126,85 +126,143 @@ def check_rate_limit(client_id):
     REQUEST_COUNT[client_id].append(now)
     return True
 
+def page_has_images(file_path, page_num):
+    """Detect if a page contains images."""
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            if page_num > len(pdf.pages):
+                return False
+            page = pdf.pages[page_num - 1]
+            # Check if page has images
+            if hasattr(page, 'images') and page.images:
+                return True
+            # Also check if extracted text is very sparse (might indicate scanned page)
+            text = page.extract_text() or ""
+            # If very little text is extracted, it might be an image-based page
+            if len(text.strip()) < 50:
+                return True
+        return False
+    except Exception as e:
+        logger.warning(f"Could not detect images on page {page_num}: {e}")
+        return False
+
 async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
-    """Extract text from PDF with optional OCR."""
+    """Extract text from PDF with optional OCR. 
+    
+    If use_ocr='auto', intelligently detects which pages have images and only OCRs those.
+    If use_ocr=True, OCRs all specified pages (with MAX_OCR_PAGES limit).
+    If use_ocr=False, uses regular text extraction only.
+    """
     text_content = {}
     
     try:
-        if use_ocr:
-            # Enforce OCR page limit
-            if pages and len(pages) > MAX_OCR_PAGES:
-                logger.warning(f"OCR requested for {len(pages)} pages, limiting to {MAX_OCR_PAGES} pages")
-                pages = pages[:MAX_OCR_PAGES]
-            
-            logger.info(f"Starting OCR processing for {len(pages) if pages else 'all'} pages (DPI={OCR_DPI}, Max={MAX_OCR_PAGES})")
-            
-            # Convert and process pages ONE AT A TIME to prevent blocking
+        if use_ocr == 'auto' or use_ocr is True:
+            # Smart OCR: detect pages with images and OCR only those
             loop = asyncio.get_event_loop()
             page_list = pages if pages else list(range(1, MAX_OCR_PAGES + 1))
             
-            for page_num in page_list:
-                try:
-                    logger.info(f"Converting page {page_num} to image...")
-                    
-                    # Convert single page to image in executor
-                    try:
-                        images = await loop.run_in_executor(
-                            None,
-                            lambda: convert_from_path(
-                                file_path,
-                                first_page=page_num,
-                                last_page=page_num,
-                                dpi=OCR_DPI
-                            )
-                        )
-                    except Exception as e:
-                        logger.info(f"Retrying with system poppler path")
-                        images = await loop.run_in_executor(
-                            None,
-                            lambda: convert_from_path(
-                                file_path,
-                                first_page=page_num,
-                                last_page=page_num,
-                                poppler_path='/usr/bin',
-                                dpi=OCR_DPI
-                            )
-                        )
-                    
-                    if not images:
-                        logger.warning(f"No image generated for page {page_num}")
-                        text_content[page_num] = "[Image conversion failed]"
+            logger.info(f"Starting intelligent OCR: scanning {len(page_list)} pages for images...")
+            
+            # First pass: extract text normally and detect which pages need OCR
+            pages_needing_ocr = []
+            with pdfplumber.open(file_path) as pdf:
+                for page_num in page_list:
+                    if page_num > len(pdf.pages):
                         continue
                     
-                    # Yield after image conversion
-                    await asyncio.sleep(0.05)
-                    
-                    # Perform OCR on the converted image
-                    logger.info(f"Performing OCR on page {page_num}...")
                     try:
-                        page_text = await asyncio.wait_for(
-                            loop.run_in_executor(
+                        page = pdf.pages[page_num - 1]
+                        page_text = page.extract_text() or ""
+                        
+                        # Check if page has images or very little text (scanned page)
+                        has_images = hasattr(page, 'images') and len(page.images) > 0
+                        has_sparse_text = len(page_text.strip()) < 50
+                        
+                        if has_images or has_sparse_text:
+                            pages_needing_ocr.append(page_num)
+                            logger.info(f"Page {page_num}: Images detected or sparse text - will use OCR")
+                        else:
+                            # Good text extraction, use it
+                            text_content[page_num] = page_text
+                            logger.debug(f"Page {page_num}: Clean text extraction ({len(page_text)} chars)")
+                    
+                    except Exception as e:
+                        logger.warning(f"Error analyzing page {page_num}: {e}")
+                        pages_needing_ocr.append(page_num)
+            
+            # Second pass: OCR only pages that need it
+            if pages_needing_ocr:
+                # Enforce OCR page limit
+                if len(pages_needing_ocr) > MAX_OCR_PAGES:
+                    logger.warning(f"Found {len(pages_needing_ocr)} pages with images, limiting OCR to first {MAX_OCR_PAGES} pages")
+                    pages_needing_ocr = pages_needing_ocr[:MAX_OCR_PAGES]
+                
+                logger.info(f"🔍 Applying OCR to {len(pages_needing_ocr)} pages with images...")
+                
+                for page_num in pages_needing_ocr:
+                    try:
+                        logger.info(f"Converting page {page_num} to image for OCR...")
+                        
+                        # Convert single page to image in executor
+                        try:
+                            images = await loop.run_in_executor(
                                 None,
-                                lambda: pytesseract.image_to_string(
-                                    images[0],
-                                    lang=OCR_LANG,
-                                    config='--psm 1 --oem 3'
+                                lambda p=page_num: convert_from_path(
+                                    file_path,
+                                    first_page=p,
+                                    last_page=p,
+                                    dpi=OCR_DPI
                                 )
-                            ),
-                            timeout=OCR_TIMEOUT_PER_PAGE
-                        )
-                        text_content[page_num] = page_text
-                        logger.info(f"✓ Page {page_num} OCR completed: {len(page_text)} characters")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"OCR timeout for page {page_num} after {OCR_TIMEOUT_PER_PAGE}s")
-                        text_content[page_num] = "[OCR timeout - page skipped]"
-                    
-                    # Yield control after each page
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    logger.warning(f"OCR failed for page {page_num}: {e}")
-                    text_content[page_num] = f"[OCR error: {str(e)}]"
+                            )
+                        except Exception as e:
+                            logger.info(f"Retrying with system poppler path")
+                            images = await loop.run_in_executor(
+                                None,
+                                lambda p=page_num: convert_from_path(
+                                    file_path,
+                                    first_page=p,
+                                    last_page=p,
+                                    poppler_path='/usr/bin',
+                                    dpi=OCR_DPI
+                                )
+                            )
+                        
+                        if not images:
+                            logger.warning(f"No image generated for page {page_num}")
+                            text_content[page_num] = "[Image conversion failed]"
+                            continue
+                        
+                        # Yield after image conversion
+                        await asyncio.sleep(0.05)
+                        
+                        # Perform OCR on the converted image
+                        logger.info(f"Performing OCR on page {page_num}...")
+                        try:
+                            page_text = await asyncio.wait_for(
+                                loop.run_in_executor(
+                                    None,
+                                    lambda img=images[0]: pytesseract.image_to_string(
+                                        img,
+                                        lang=OCR_LANG,
+                                        config='--psm 1 --oem 3'
+                                    )
+                                ),
+                                timeout=OCR_TIMEOUT_PER_PAGE
+                            )
+                            text_content[page_num] = page_text
+                            logger.info(f"Page {page_num} OCR completed: {len(page_text)} characters")
+                        except asyncio.TimeoutError:
+                            logger.warning(f"OCR timeout for page {page_num} after {OCR_TIMEOUT_PER_PAGE}s")
+                            text_content[page_num] = "[OCR timeout - page skipped]"
+                        
+                        # Yield control after each page
+                        await asyncio.sleep(0.1)
+                        
+                    except Exception as e:
+                        logger.warning(f"OCR failed for page {page_num}: {e}")
+                        text_content[page_num] = f"[OCR error: {str(e)}]"
+            
+            logger.info(f"Intelligent OCR complete: {len(text_content)} pages processed ({len(pages_needing_ocr)} with OCR)")
         else:
             # Extract text directly from PDF
             with pdfplumber.open(file_path) as pdf:
@@ -348,8 +406,8 @@ def generate_quiz(text, count=3):
 # === MCP TOOLS ===
 
 @mcp.tool()
-async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
-    """Extract table of contents from a PDF file."""
+async def extract_toc(file_path: str = "", use_ocr: str = "auto") -> str:
+    """Extract table of contents from a PDF file with intelligent OCR."""
     if not check_rate_limit("extract_toc"):
         return "Rate limit exceeded. Please try again later."
     
@@ -368,7 +426,9 @@ async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
         return "Error: File must be a PDF"
     
     try:
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Extract text from first 20 pages to find TOC
         text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, list(range(1, 21)))
@@ -391,8 +451,8 @@ async def extract_toc(file_path: str = "", use_ocr: str = "false") -> str:
         return f"Error extracting TOC: {str(e)}"
 
 @mcp.tool()
-async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr: str = "false") -> str:
-    """Generate summary for specific chapter pages."""
+async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr: str = "auto") -> str:
+    """Generate summary for specific chapter pages with intelligent OCR."""
     if not check_rate_limit("chapter_summary"):
         return "Rate limit exceeded. Please try again later."
     
@@ -407,7 +467,9 @@ async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr:
         return f"Error: File not found: {file_path}"
     
     try:
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Get total pages
         with open(safe_path, 'rb') as file:
@@ -420,7 +482,7 @@ async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr:
             return "Error: Invalid page range"
         
         # Extract text from specified pages
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, pages)
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, pages)
         
         # Combine text from all pages
         combined_text = '\n'.join(text_content.values())
@@ -441,8 +503,8 @@ async def chapter_summary(file_path: str = "", chapter_pages: str = "", use_ocr:
         return f"Error generating chapter summary: {str(e)}"
 
 @mcp.tool()
-async def section_summary(file_path: str = "", section_pages: str = "", use_ocr: str = "false") -> str:
-    """Generate summary for specific section pages."""
+async def section_summary(file_path: str = "", section_pages: str = "", use_ocr: str = "auto") -> str:
+    """Generate summary for specific section pages with intelligent OCR."""
     if not check_rate_limit("section_summary"):
         return "Rate limit exceeded. Please try again later."
     
@@ -457,7 +519,9 @@ async def section_summary(file_path: str = "", section_pages: str = "", use_ocr:
         return f"Error: File not found: {file_path}"
     
     try:
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Get total pages
         with open(safe_path, 'rb') as file:
@@ -470,7 +534,7 @@ async def section_summary(file_path: str = "", section_pages: str = "", use_ocr:
             return "Error: Invalid page range"
         
         # Extract text from specified pages
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, pages)
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, pages)
         
         # Generate summary for each page
         summaries = []
@@ -492,8 +556,8 @@ async def section_summary(file_path: str = "", section_pages: str = "", use_ocr:
         return f"Error generating section summary: {str(e)}"
 
 @mcp.tool()
-async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str = "false") -> str:
-    """Generate summary for a specific page."""
+async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str = "auto") -> str:
+    """Generate summary for a specific page with intelligent OCR."""
     if not check_rate_limit("page_summary"):
         return "Rate limit exceeded. Please try again later."
     
@@ -509,10 +573,12 @@ async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str
     
     try:
         page_num = int(page_number) if page_number.strip() else 1
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Extract text from specific page
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, [page_num])
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, [page_num])
         
         if page_num not in text_content:
             return f"Error: Page {page_num} not found in document"
@@ -536,8 +602,8 @@ async def page_summary(file_path: str = "", page_number: str = "1", use_ocr: str
         return f"Error generating page summary: {str(e)}"
 
 @mcp.tool()
-async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use_ocr: str = "false") -> str:
-    """Generate flashcards from PDF content."""
+async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use_ocr: str = "auto") -> str:
+    """Generate flashcards from PDF content with intelligent OCR."""
     if not check_rate_limit("flashcards"):
         return "Rate limit exceeded. Please try again later."
     
@@ -554,7 +620,9 @@ async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use
     try:
         card_count = int(count) if count.strip() else 5
         card_count = min(card_count, 20)  # Limit to 20 cards
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Get total pages
         with open(safe_path, 'rb') as file:
@@ -565,7 +633,7 @@ async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use
         page_list = validate_page_range(pages, total_pages) if pages.strip() else list(range(1, min(11, total_pages + 1)))
         
         # Extract text from specified pages
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, page_list)
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, page_list)
         
         # Combine text from all pages
         combined_text = '\n'.join(text_content.values())
@@ -595,8 +663,8 @@ async def flashcards(file_path: str = "", pages: str = "", count: str = "5", use
         return f"Error generating flashcards: {str(e)}"
 
 @mcp.tool()
-async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_ocr: str = "false") -> str:
-    """Generate quiz questions from PDF content."""
+async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_ocr: str = "auto") -> str:
+    """Generate quiz questions from PDF content with intelligent OCR."""
     if not check_rate_limit("quiz_gen"):
         return "Rate limit exceeded. Please try again later."
     
@@ -613,7 +681,9 @@ async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_o
     try:
         question_count = int(count) if count.strip() else 3
         question_count = min(question_count, 10)  # Limit to 10 questions
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode
+        ocr_mode = use_ocr.lower().strip()
+        use_ocr_mode = 'auto' if ocr_mode in ['auto', 'automatic', 'smart'] else (True if ocr_mode in ['true', '1', 'yes'] else False)
         
         # Get total pages
         with open(safe_path, 'rb') as file:
@@ -624,7 +694,7 @@ async def quiz_gen(file_path: str = "", pages: str = "", count: str = "3", use_o
         page_list = validate_page_range(pages, total_pages) if pages.strip() else list(range(1, min(11, total_pages + 1)))
         
         # Extract text from specified pages
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, page_list)
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, page_list)
         
         # Combine text from all pages
         combined_text = '\n'.join(text_content.values())
@@ -659,16 +729,16 @@ async def extract_from_pdf(
     file_path: str = "",
     focus_pages: str = "",
     supporting_files: str = "",
-    use_ocr: str = "false"
+    use_ocr: str = "auto"
 ) -> str:
     """
-    Read entire PDF (or specified pages)
+    Read entire PDF (or specified pages) with intelligent OCR
     
     Args:
         file_path: Path to the PDF file
         focus_pages: Optional page range to focus on (e.g., "1-10" or "5,10,15-20"). If empty, reads entire document
         supporting_files: Comma-separated list of supporting file paths
-        use_ocr: Whether to use OCR for scanned PDFs
+        use_ocr: OCR mode - "auto" (intelligent detection, default), "true" (force all pages), "false" (disable)
     
     Returns:
         Combined text content from main and supporting files
@@ -690,7 +760,14 @@ async def extract_from_pdf(
         return "Error: File must be a PDF"
     
     try:
-        use_ocr_bool = use_ocr.lower() in ['true', '1', 'yes']
+        # Parse OCR mode: 'auto' (default), 'true', or 'false'
+        ocr_mode = use_ocr.lower().strip()
+        if ocr_mode in ['auto', 'automatic', 'smart']:
+            use_ocr_mode = 'auto'
+        elif ocr_mode in ['true', '1', 'yes']:
+            use_ocr_mode = True
+        else:
+            use_ocr_mode = False
         
         # Get total pages
         with open(safe_path, 'rb') as file:
@@ -712,8 +789,8 @@ async def extract_from_pdf(
             return "Error: Invalid page range"
         
         # Extract text from main PDF
-        logger.info("Extracting text from main PDF...")
-        text_content = await extract_text_from_pdf(safe_path, use_ocr_bool, page_list)
+        logger.info(f"Extracting text from main PDF (OCR mode: {use_ocr_mode})...")
+        text_content = await extract_text_from_pdf(safe_path, use_ocr_mode, page_list)
         
         # Combine all text from main file
         combined_text = '\n\n'.join([f"=== PAGE {page_num} ===\n{text}" 
@@ -797,9 +874,9 @@ if __name__ == "__main__":
     # Verify OCR dependencies
     try:
         tesseract_version = pytesseract.get_tesseract_version()
-        logger.info(f"✓ Tesseract OCR detected: version {tesseract_version}")
+        logger.info(f"Tesseract OCR detected: version {tesseract_version}")
     except Exception as e:
-        logger.warning(f"⚠ Tesseract OCR not available: {e}")
+        logger.warning(f"Tesseract OCR not available: {e}")
         logger.warning("OCR features will not work properly")
     
     # Verify poppler
@@ -807,11 +884,11 @@ if __name__ == "__main__":
         import subprocess
         result = subprocess.run(['pdfinfo', '-v'], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
-            logger.info("✓ Poppler utilities detected (required for pdf2image)")
+            logger.info("Poppler utilities detected (required for pdf2image)")
         else:
-            logger.warning("⚠ Poppler utilities may not be properly configured")
+            logger.warning("Poppler utilities may not be properly configured")
     except Exception as e:
-        logger.warning(f"⚠ Could not verify poppler installation: {e}")
+        logger.warning(f"Could not verify poppler installation: {e}")
     
     try:
         mcp.run(transport='stdio')
