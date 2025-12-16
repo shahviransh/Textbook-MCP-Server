@@ -38,7 +38,7 @@ Set these environment variables when running:
 
 - `MODEL_PATH`: AI model path (default: "microsoft/DialoGPT-medium")
 - `MAX_PAGES`: Maximum pages to process for regular text extraction (default: 500)
-- `MAX_OCR_PAGES`: **Maximum pages for OCR processing** (default: 20, strict limit)
+- `MAX_OCR_PAGES`: Maximum pages for **forced** OCR mode only (default: 20, does NOT apply to auto mode)
 - `OCR_LANG`: OCR language code (default: "eng")
 - `ALLOWED_UPLOAD_DIR`: Upload directory (default: "/app/uploads")
 - `MAX_FILE_SIZE_MB`: Maximum file size in MB (default: 100)
@@ -152,12 +152,14 @@ OCR supports multiple languages via Tesseract:
 - **Intelligent OCR (NEW)**: By default, the server uses `"auto"` mode which:
   - Analyzes each page to detect if it contains images or is scanned
   - Only applies OCR to pages that need it (images/scanned pages)
+  - **OCRs ALL pages with images - no artificial limits!**
   - Uses fast text extraction for regular text pages
   - No need to manually specify OCR - it's automatic!
   - Can process large documents efficiently (text pages are fast, only image pages use OCR)
-- **OCR Page Limits**: When OCR is needed, it's limited to `MAX_OCR_PAGES` (default: 20 pages) to prevent timeouts
-  - The auto mode will OCR up to 20 pages that contain images
-  - Remaining text-only pages are processed with fast text extraction
+  - Example: 741-page PDF with 539 image pages - all 539 will be OCR'd, remaining 202 use fast text extraction
+- **OCR Page Limits**: Only applies to forced `"true"` mode (limited to `MAX_OCR_PAGES` = 20 pages)
+  - `"auto"` mode has NO limit - it will OCR all pages that contain images
+  - Use forced mode (`use_ocr="true"`) only when you want to limit OCR to a specific number of pages
 - **EOF Errors during OCR**: If you encounter EOF or timeout errors:
   - Reduce `MAX_OCR_PAGES` to 10 or fewer for slower systems
   - Increase `OCR_TIMEOUT_PER_PAGE` (default: 30 seconds)

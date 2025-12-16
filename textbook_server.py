@@ -159,9 +159,15 @@ async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
         if use_ocr == 'auto' or use_ocr is True:
             # Smart OCR: detect pages with images and OCR only those
             loop = asyncio.get_event_loop()
-            page_list = pages if pages else list(range(1, MAX_OCR_PAGES + 1))
             
-            logger.info(f"Starting intelligent OCR: scanning {len(page_list)} pages for images...")
+            # In 'auto' mode, scan all requested pages with NO LIMIT. In 'true' mode, limit to MAX_OCR_PAGES
+            if use_ocr == 'auto':
+                page_list = pages if pages else list(range(1, MAX_PAGES + 1))
+                logger.info(f"Starting intelligent OCR (auto mode): scanning {len(page_list)} pages for images - will OCR ALL image pages...")
+            else:
+                # Force mode: apply limit
+                page_list = (pages[:MAX_OCR_PAGES] if pages and len(pages) > MAX_OCR_PAGES else pages) if pages else list(range(1, MAX_OCR_PAGES + 1))
+                logger.info(f"Starting forced OCR: processing up to {len(page_list)} pages...")
             
             # First pass: extract text normally and detect which pages need OCR
             pages_needing_ocr = []
@@ -174,17 +180,21 @@ async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
                         page = pdf.pages[page_num - 1]
                         page_text = page.extract_text() or ""
                         
-                        # Check if page has images or very little text (scanned page)
-                        has_images = hasattr(page, 'images') and len(page.images) > 0
-                        has_sparse_text = len(page_text.strip()) < 50
-                        
-                        if has_images or has_sparse_text:
-                            pages_needing_ocr.append(page_num)
-                            logger.info(f"Page {page_num}: Images detected or sparse text - will use OCR")
+                        if use_ocr == 'auto':
+                            # Check if page has images or very little text (scanned page)
+                            has_images = hasattr(page, 'images') and len(page.images) > 0
+                            has_sparse_text = len(page_text.strip()) < 50
+                            
+                            if has_images or has_sparse_text:
+                                pages_needing_ocr.append(page_num)
+                                logger.info(f"Page {page_num}: Images detected or sparse text - will use OCR")
+                            else:
+                                # Good text extraction, use it
+                                text_content[page_num] = page_text
+                                logger.debug(f"Page {page_num}: Clean text extraction ({len(page_text)} chars)")
                         else:
-                            # Good text extraction, use it
-                            text_content[page_num] = page_text
-                            logger.debug(f"Page {page_num}: Clean text extraction ({len(page_text)} chars)")
+                            # Force OCR on all pages in 'true' mode
+                            pages_needing_ocr.append(page_num)
                     
                     except Exception as e:
                         logger.warning(f"Error analyzing page {page_num}: {e}")
@@ -192,11 +202,8 @@ async def extract_text_from_pdf(file_path, use_ocr=False, pages=None):
             
             # Second pass: OCR only pages that need it
             if pages_needing_ocr:
-                # Enforce OCR page limit
-                if len(pages_needing_ocr) > MAX_OCR_PAGES:
-                    logger.warning(f"Found {len(pages_needing_ocr)} pages with images, limiting OCR to first {MAX_OCR_PAGES} pages")
-                    pages_needing_ocr = pages_needing_ocr[:MAX_OCR_PAGES]
-                
+                # In auto mode, OCR ALL pages with images (no limit)
+                # In force mode, MAX_OCR_PAGES limit was already applied above
                 logger.info(f"🔍 Applying OCR to {len(pages_needing_ocr)} pages with images...")
                 
                 for page_num in pages_needing_ocr:
